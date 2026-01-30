@@ -72,4 +72,17 @@ public class PlayerInteractor : MonoBehaviour, InputSystem_Actions.IPlayerAction
     public void OnPrevious(InputAction.CallbackContext context) { }
     public void OnNext(InputAction.CallbackContext context) { }
     public void OnSprint(InputAction.CallbackContext context) { }
+
+#if UNITY_EDITOR
+    private void OnDrawGizmos()
+    {
+        if (interactorSource == null) return;
+
+        Gizmos.color = Color.cyan;
+        Gizmos.DrawRay(interactorSource.position, interactorSource.forward * interactorRange);
+
+        // Drew a small sphere at the end of the interaction ray
+        Gizmos.DrawWireSphere(interactorSource.position + interactorSource.forward * interactorRange, 0.1f);
+    }   
+#endif
 }

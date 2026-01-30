@@ -1,7 +1,9 @@
-using System.Collections;
+using System.Threading;
+using Cysharp.Threading.Tasks;
 using UnityEngine;
 using WorldInteractionSystem.Runtime.Core;
 using WorldInteractionSystem.Runtime.Items;
+using System;
 
 namespace WorldInteractionSystem.Runtime.Interactables
 {
@@ -12,27 +14,27 @@ namespace WorldInteractionSystem.Runtime.Interactables
     {
         #region Fields
 
-        private const float k_DefaultOpenAngle = -90f;
         private const float k_DefaultOpenSpeed = 4f;
         private const string k_AlreadyOpenedText = "Already opened";
 
         [Header("Chest")]
         [SerializeField] private Transform m_LidPivot;
-        [SerializeField] private Vector3 m_OpenAxis = Vector3.right;
-        [SerializeField] private float m_OpenAngle = k_DefaultOpenAngle;
+        [SerializeField] private Vector3 m_OpenOffset = new Vector3(0.5f, 0f, 0f);
         [SerializeField] private float m_OpenSpeed = k_DefaultOpenSpeed;
         [SerializeField] private bool m_IsOpened;
 
         [Header("Contents")]
         [SerializeField] private ItemDefinition m_ContainedItem;
         [SerializeField] private bool m_AddItemToInventory = true;
+        [SerializeField] private GameObject m_ContainedInteractable;
+        [SerializeField] private bool m_DisableContainedInteractableOnStart = true;
 
         [Header("Debug")]
         [SerializeField] private bool m_LogHoldProgress = true;
 
-        private Quaternion m_ClosedRotation;
-        private Quaternion m_OpenRotation;
-        private Coroutine m_RotationRoutine;
+        private Vector3 m_ClosedLocalPosition;
+        private Vector3 m_OpenLocalPosition;
+        private CancellationTokenSource m_MoveCts;
         private int m_LastLoggedPercent = -1;
 
         #endregion
@@ -56,8 +58,30 @@ namespace WorldInteractionSystem.Runtime.Interactables
                 Debug.LogWarning($"{nameof(ChestInteractable)}: Lid pivot not assigned. Using self.", this);
             }
 
-            m_ClosedRotation = m_LidPivot.localRotation;
-            m_OpenRotation = m_ClosedRotation * Quaternion.AngleAxis(m_OpenAngle, m_OpenAxis.normalized);
+            m_ClosedLocalPosition = m_LidPivot.localPosition;
+            m_OpenLocalPosition = m_ClosedLocalPosition + m_OpenOffset;
+
+            if (m_IsOpened)
+            {
+                m_LidPivot.localPosition = m_OpenLocalPosition;
+            }
+
+            if (m_ContainedInteractable != null)
+            {
+                if (m_IsOpened)
+                {
+                    m_ContainedInteractable.SetActive(true);
+                }
+                else if (m_DisableContainedInteractableOnStart)
+                {
+                    m_ContainedInteractable.SetActive(false);
+                }
+            }
+        }
+
+        private void OnDisable()
+        {
+            CancelMove();
         }
 
         #endregion
@@ -100,7 +124,8 @@ namespace WorldInteractionSystem.Runtime.Interactables
 
             m_LastLoggedPercent = -1;
             m_IsOpened = true;
-            RotateLid();
+            MoveLid();
+            EnableContainedInteractable();
 
             if (m_ContainedItem == null || !m_AddItemToInventory)
             {
@@ -154,7 +179,7 @@ namespace WorldInteractionSystem.Runtime.Interactables
             m_LastLoggedPercent = -1;
         }
 
-        private void RotateLid()
+        private void MoveLid()
         {
             if (m_LidPivot == null)
             {
@@ -162,27 +187,56 @@ namespace WorldInteractionSystem.Runtime.Interactables
                 return;
             }
 
-            if (m_RotationRoutine != null)
-            {
-                StopCoroutine(m_RotationRoutine);
-            }
-
-            m_RotationRoutine = StartCoroutine(RotateRoutine(m_OpenRotation));
+            CancelMove();
+            m_MoveCts = new CancellationTokenSource();
+            MoveRoutineAsync(m_OpenLocalPosition, m_MoveCts.Token).Forget();
         }
 
-        private IEnumerator RotateRoutine(Quaternion targetRotation)
+        private async UniTaskVoid MoveRoutineAsync(Vector3 targetPosition, CancellationToken token)
         {
-            Quaternion startRotation = m_LidPivot.localRotation;
+            Vector3 startPosition = m_LidPivot.localPosition;
             float t = 0f;
 
-            while (t < 1f)
+            try
             {
-                t += Time.deltaTime * m_OpenSpeed;
-                m_LidPivot.localRotation = Quaternion.Slerp(startRotation, targetRotation, t);
-                yield return null;
+                while (t < 1f)
+                {
+                    t += Time.deltaTime * m_OpenSpeed;
+                    m_LidPivot.localPosition = Vector3.Lerp(startPosition, targetPosition, t);
+                    await UniTask.Yield(PlayerLoopTiming.Update, token);
+                }
+
+                m_LidPivot.localPosition = targetPosition;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        private void EnableContainedInteractable()
+        {
+            if (m_ContainedInteractable == null)
+            {
+                return;
             }
 
-            m_LidPivot.localRotation = targetRotation;
+            m_ContainedInteractable.SetActive(true);
+        }
+
+        private void CancelMove()
+        {
+            if (m_MoveCts == null)
+            {
+                return;
+            }
+
+            if (!m_MoveCts.IsCancellationRequested)
+            {
+                m_MoveCts.Cancel();
+            }
+
+            m_MoveCts.Dispose();
+            m_MoveCts = null;
         }
 
         #endregion

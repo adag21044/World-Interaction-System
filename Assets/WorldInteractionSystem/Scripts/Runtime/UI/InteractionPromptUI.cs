@@ -15,6 +15,7 @@ namespace WorldInteractionSystem.Runtime.UI
         [SerializeField] private GameObject m_Root;
         [SerializeField] private TMP_Text m_PromptText;
         [SerializeField] private TMP_Text m_StatusText;
+        [SerializeField] private Slider m_HoldProgressSlider;
         [SerializeField] private Image m_HoldProgressImage;
 
         private bool m_HasLoggedMissingRefs;
@@ -25,10 +26,26 @@ namespace WorldInteractionSystem.Runtime.UI
 
         private void Awake()
         {
-            if (m_PromptText == null || m_StatusText == null || m_HoldProgressImage == null)
+            if (m_PromptText == null || m_StatusText == null || (m_HoldProgressSlider == null && m_HoldProgressImage == null))
             {
                 Debug.LogError($"{nameof(InteractionPromptUI)}: UI references are missing.", this);
                 m_HasLoggedMissingRefs = true;
+            }
+        }
+
+        private void OnDisable()
+        {
+            ResetHoldProgress();
+            if (m_HoldProgressImage != null)
+            {
+                m_HoldProgressImage.fillAmount = 0f;
+                m_HoldProgressImage.enabled = false;
+            }
+
+            if (m_HoldProgressSlider != null)
+            {
+                m_HoldProgressSlider.value = 0f;
+                m_HoldProgressSlider.gameObject.SetActive(false);
             }
         }
 
@@ -79,14 +96,32 @@ namespace WorldInteractionSystem.Runtime.UI
         /// <param name="visible">Whether to show progress.</param>
         public void SetHoldProgress(float normalizedProgress, bool visible)
         {
-            if (m_HoldProgressImage == null)
+            if (m_HoldProgressSlider == null && m_HoldProgressImage == null)
             {
                 LogMissingRefs();
                 return;
             }
 
-            m_HoldProgressImage.fillAmount = Mathf.Clamp01(normalizedProgress);
-            m_HoldProgressImage.enabled = visible;
+            float clamped = Mathf.Clamp01(normalizedProgress);
+            bool shouldShow = visible && clamped < 1f;
+
+            if (m_HoldProgressSlider != null)
+            {
+                m_HoldProgressSlider.value = clamped;
+                m_HoldProgressSlider.gameObject.SetActive(shouldShow);
+            }
+
+            if (m_HoldProgressImage != null)
+            {
+                m_HoldProgressImage.fillAmount = clamped;
+                m_HoldProgressImage.enabled = shouldShow;
+            }
+
+            if (!shouldShow)
+            {
+                ResetHoldProgress();
+            }
+
             UpdateRootVisibility();
         }
 
@@ -113,6 +148,12 @@ namespace WorldInteractionSystem.Runtime.UI
                 m_HoldProgressImage.enabled = false;
             }
 
+            if (m_HoldProgressSlider != null)
+            {
+                m_HoldProgressSlider.value = 0f;
+                m_HoldProgressSlider.gameObject.SetActive(false);
+            }
+
             UpdateRootVisibility();
         }
 
@@ -134,7 +175,18 @@ namespace WorldInteractionSystem.Runtime.UI
                 anyVisible = true;
             }
 
+            bool holdVisible = false;
             if (m_HoldProgressImage != null && m_HoldProgressImage.enabled)
+            {
+                holdVisible = true;
+            }
+
+            if (m_HoldProgressSlider != null && m_HoldProgressSlider.gameObject.activeSelf)
+            {
+                holdVisible = true;
+            }
+
+            if (holdVisible)
             {
                 anyVisible = true;
             }
@@ -151,6 +203,21 @@ namespace WorldInteractionSystem.Runtime.UI
 
             Debug.LogError($"{nameof(InteractionPromptUI)}: UI references are missing.", this);
             m_HasLoggedMissingRefs = true;
+        }
+
+        private void ResetHoldProgress()
+        {
+            if (m_HoldProgressImage != null)
+            {
+                m_HoldProgressImage.fillAmount = 0f;
+                m_HoldProgressImage.enabled = false;
+            }
+
+            if (m_HoldProgressSlider != null)
+            {
+                m_HoldProgressSlider.value = 0f;
+                m_HoldProgressSlider.gameObject.SetActive(false);
+            }
         }
 
         #endregion

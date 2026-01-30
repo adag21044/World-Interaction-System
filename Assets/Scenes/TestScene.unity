@@ -1252,8 +1252,9 @@ MonoBehaviour:
   m_OpenAngle: -90
   m_OpenSpeed: 4
   m_IsOpened: 0
-  m_ContainedItem: {fileID: 11400000, guid: b1f7cdbfa91c1014cba84cb95b9707a5, type: 2}
+  m_ContainedItem: {fileID: 11400000, guid: 11d1c4fe0f88bd646a33090dcef7161a, type: 2}
   m_AddItemToInventory: 1
+  m_LogHoldProgress: 1
 --- !u!1 &996157029
 GameObject:
   m_ObjectHideFlags: 0
@@ -1524,6 +1525,9 @@ MonoBehaviour:
   m_DefaultInteractDisplay: E
   m_PressPromptFormat: Press {0} to {1}
   m_HoldPromptFormat: Hold {0} to {1}
+  m_UseCustomInteractKey: 0
+  m_CustomInteractKey: 19
+  m_LockToSingleInteractable: 1
   m_EnableDebugLogs: 0
 --- !u!114 &1041874734
 MonoBehaviour:

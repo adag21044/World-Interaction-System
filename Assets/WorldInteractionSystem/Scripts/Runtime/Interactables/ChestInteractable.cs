@@ -27,9 +27,13 @@ namespace WorldInteractionSystem.Runtime.Interactables
         [SerializeField] private ItemDefinition m_ContainedItem;
         [SerializeField] private bool m_AddItemToInventory = true;
 
+        [Header("Debug")]
+        [SerializeField] private bool m_LogHoldProgress = true;
+
         private Quaternion m_ClosedRotation;
         private Quaternion m_OpenRotation;
         private Coroutine m_RotationRoutine;
+        private int m_LastLoggedPercent = -1;
 
         #endregion
 
@@ -89,6 +93,12 @@ namespace WorldInteractionSystem.Runtime.Interactables
                 return;
             }
 
+            if (m_LogHoldProgress)
+            {
+                Debug.Log($"{name}: Hold completed (100%).", this);
+            }
+
+            m_LastLoggedPercent = -1;
             m_IsOpened = true;
             RotateLid();
 
@@ -104,6 +114,44 @@ namespace WorldInteractionSystem.Runtime.Interactables
             }
 
             context.Inventory.TryAddItem(m_ContainedItem);
+        }
+
+        protected override void OnHoldStarted(InteractorContext context)
+        {
+            m_LastLoggedPercent = -1;
+
+            if (m_LogHoldProgress)
+            {
+                Debug.Log($"{name}: Hold started (0%).", this);
+            }
+        }
+
+        protected override void OnHoldProgress(InteractorContext context, float normalizedProgress)
+        {
+            if (!m_LogHoldProgress)
+            {
+                return;
+            }
+
+            int percent = Mathf.Clamp(Mathf.RoundToInt(normalizedProgress * 100f), 0, 100);
+            if (percent == m_LastLoggedPercent)
+            {
+                return;
+            }
+
+            m_LastLoggedPercent = percent;
+            Debug.Log($"{name}: Hold progress {percent}%.", this);
+        }
+
+        protected override void OnHoldCanceled(InteractorContext context)
+        {
+            if (m_LogHoldProgress)
+            {
+                string progressText = m_LastLoggedPercent >= 0 ? $"{m_LastLoggedPercent}%" : "unknown%";
+                Debug.Log($"{name}: Hold canceled at {progressText}.", this);
+            }
+
+            m_LastLoggedPercent = -1;
         }
 
         private void RotateLid()

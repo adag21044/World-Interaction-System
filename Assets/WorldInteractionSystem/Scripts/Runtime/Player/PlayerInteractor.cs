@@ -1,3 +1,5 @@
+using System.Threading;
+using Cysharp.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
@@ -29,6 +31,9 @@ namespace WorldInteractionSystem.Runtime.Player
         [SerializeField] private bool m_UseCustomInteractKey;
         [SerializeField] private Key m_CustomInteractKey = Key.E;
 
+        [Header("Interaction Lock")]
+        [SerializeField] private bool m_LockToSingleInteractable = true;
+
         [Header("Debug")]
         [SerializeField] private bool m_EnableDebugLogs;
 
@@ -42,10 +47,12 @@ namespace WorldInteractionSystem.Runtime.Player
 
         private IInteractable m_CurrentInteractable;
         private bool m_IsOutOfRange;
+        private IInteractable m_LockedInteractable;
 
         private IHoldInteractable m_CurrentHold;
         private float m_HoldElapsed;
         private bool m_IsHolding;
+        private CancellationTokenSource m_HoldCancellation;
 
         private bool m_HasLoggedMissingInventory;
         private bool m_HasLoggedMissingUI;
@@ -89,6 +96,7 @@ namespace WorldInteractionSystem.Runtime.Player
 
         private void OnDisable()
         {
+            CancelHold();
             UnbindInteractAction();
         }
 
@@ -101,11 +109,16 @@ namespace WorldInteractionSystem.Runtime.Player
 
             UpdateTarget();
             TryStartHoldFromInput();
-            UpdateHold();
+            if (m_IsHolding && !IsInteractInputPressed())
+            {
+                CancelHold();
+            }
         }
 
         private void OnDestroy()
         {
+            CancelHold();
+
             if (m_FallbackActions != null)
             {
                 m_FallbackActions.Dispose();
@@ -258,6 +271,39 @@ namespace WorldInteractionSystem.Runtime.Player
                 return;
             }
 
+            if (m_LockToSingleInteractable && m_LockedInteractable != null)
+            {
+                if (!IsInteractableValid(m_LockedInteractable))
+                {
+                    ClearInteractionLock();
+                }
+                else
+                {
+                    bool isPressed = IsInteractInputPressed();
+                    bool lockedOutOfRange = IsOutOfRange(m_LockedInteractable);
+                    SetCurrentInteractable(m_LockedInteractable, lockedOutOfRange);
+                    UpdateUI(m_LockedInteractable, lockedOutOfRange);
+
+                    if (lockedOutOfRange)
+                    {
+                        CancelHold();
+                        if (!m_IsHolding)
+                        {
+                            ClearInteractionLock();
+                        }
+                    }
+                    else if (!m_IsHolding && !isPressed)
+                    {
+                        ClearInteractionLock();
+                    }
+
+                    if (m_LockedInteractable != null)
+                    {
+                        return;
+                    }
+                }
+            }
+
             IInteractable target = null;
             bool outOfRange = false;
 
@@ -343,39 +389,6 @@ namespace WorldInteractionSystem.Runtime.Player
             }
         }
 
-        private void UpdateHold()
-        {
-            if (!m_IsHolding || m_CurrentHold == null)
-            {
-                return;
-            }
-
-            if (m_BoundInteractAction == null || !m_BoundInteractAction.IsPressed())
-            {
-                CancelHold();
-                return;
-            }
-
-            float duration = m_CurrentHold.HoldDuration;
-            if (duration <= 0f)
-            {
-                Debug.LogError($"{nameof(PlayerInteractor)}: Hold duration is invalid.", this);
-                CancelHold();
-                return;
-            }
-
-            m_HoldElapsed += Time.deltaTime;
-            float progress = Mathf.Clamp01(m_HoldElapsed / duration);
-
-            m_CurrentHold.UpdateHold(BuildContext(), progress);
-            m_InteractionUI?.SetHoldProgress(progress, true);
-
-            if (progress >= 1f)
-            {
-                CompleteHold();
-            }
-        }
-
         private void TryStartHoldFromInput()
         {
             if (m_IsHolding || m_IsOutOfRange)
@@ -416,11 +429,21 @@ namespace WorldInteractionSystem.Runtime.Player
 
         private void StartHold(IHoldInteractable holdInteractable)
         {
+            if (m_LockToSingleInteractable && m_CurrentInteractable != null)
+            {
+                m_LockedInteractable = m_CurrentInteractable;
+            }
+
+            CancelHold();
+
             m_CurrentHold = holdInteractable;
             m_HoldElapsed = 0f;
             m_IsHolding = true;
             m_CurrentHold.BeginHold(BuildContext());
             m_InteractionUI?.SetHoldProgress(0f, true);
+
+            m_HoldCancellation = new CancellationTokenSource();
+            RunHoldAsync(m_CurrentHold, m_HoldCancellation.Token).Forget();
         }
 
         private void CompleteHold()
@@ -449,6 +472,9 @@ namespace WorldInteractionSystem.Runtime.Player
             m_CurrentHold = null;
             m_HoldElapsed = 0f;
             m_InteractionUI?.SetHoldProgress(0f, false);
+
+            DisposeHoldCancellation();
+            ClearInteractionLock();
         }
 
         private void CancelHold()
@@ -463,6 +489,62 @@ namespace WorldInteractionSystem.Runtime.Player
             m_CurrentHold = null;
             m_HoldElapsed = 0f;
             m_InteractionUI?.SetHoldProgress(0f, false);
+
+            DisposeHoldCancellation();
+            ClearInteractionLock();
+        }
+
+        private async UniTaskVoid RunHoldAsync(IHoldInteractable holdInteractable, CancellationToken token)
+        {
+            float duration = holdInteractable.HoldDuration;
+            if (duration <= 0f)
+            {
+                Debug.LogError($"{nameof(PlayerInteractor)}: Hold duration is invalid.", this);
+                CancelHold();
+                return;
+            }
+
+            float elapsed = 0f;
+
+            while (elapsed < duration)
+            {
+                if (token.IsCancellationRequested || !m_IsHolding || m_CurrentHold == null)
+                {
+                    return;
+                }
+
+                elapsed += Time.deltaTime;
+                m_HoldElapsed = elapsed;
+
+                float progress = Mathf.Clamp01(elapsed / duration);
+                holdInteractable.UpdateHold(BuildContext(), progress);
+                m_InteractionUI?.SetHoldProgress(progress, true);
+
+                await UniTask.Yield(PlayerLoopTiming.Update, token);
+            }
+
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+
+            CompleteHold();
+        }
+
+        private void DisposeHoldCancellation()
+        {
+            if (m_HoldCancellation == null)
+            {
+                return;
+            }
+
+            if (!m_HoldCancellation.IsCancellationRequested)
+            {
+                m_HoldCancellation.Cancel();
+            }
+
+            m_HoldCancellation.Dispose();
+            m_HoldCancellation = null;
         }
 
         private bool TryGetCurrentInteractable(out IInteractable interactable, out bool outOfRange)
@@ -476,6 +558,48 @@ namespace WorldInteractionSystem.Runtime.Player
         {
             Transform source = m_Detector != null && m_Detector.Source != null ? m_Detector.Source : transform;
             return new InteractorContext(gameObject, source, m_Inventory);
+        }
+
+        private bool IsInteractableValid(IInteractable interactable)
+        {
+            if (interactable == null)
+            {
+                return false;
+            }
+
+            if (interactable is Object unityObject && unityObject == null)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private bool IsOutOfRange(IInteractable interactable)
+        {
+            if (m_Detector == null)
+            {
+                return false;
+            }
+
+            if (!(interactable is Component component) || component == null)
+            {
+                return false;
+            }
+
+            Transform source = m_Detector.Source != null ? m_Detector.Source : transform;
+            float distance = Vector3.Distance(source.position, component.transform.position);
+            return distance > m_Detector.InteractionRange;
+        }
+
+        private bool IsInteractInputPressed()
+        {
+            return m_BoundInteractAction != null && m_BoundInteractAction.enabled && m_BoundInteractAction.IsPressed();
+        }
+
+        private void ClearInteractionLock()
+        {
+            m_LockedInteractable = null;
         }
 
         private void OnInteractStarted(InputAction.CallbackContext context)
@@ -526,6 +650,11 @@ namespace WorldInteractionSystem.Runtime.Player
                 }
 
                 return;
+            }
+
+            if (m_LockToSingleInteractable && m_CurrentInteractable != null)
+            {
+                m_LockedInteractable = m_CurrentInteractable;
             }
 
             if (interactable is IInstantInteractable instantInteractable)

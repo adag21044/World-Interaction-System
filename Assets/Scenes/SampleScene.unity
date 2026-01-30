@@ -753,16 +753,21 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 69661cf8e1939d04f828709ff5958a7d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::FPSInputController
-  cameraRoot: {fileID: 330585546}
-  walkSpeed: 4.5
-  sprintSpeed: 7.5
-  crouchSpeed: 2.5
-  jumpHeight: 1.6
-  gravity: -25
-  lookSensitivity: 0.125
-  maxLookAngle: 85
-  crouchHeight: 1.2
-  crouchCenterY: 0.6
+  m_CameraRoot: {fileID: 330585546}
+  m_WalkSpeed: 4.5
+  m_SprintSpeed: 7.5
+  m_CrouchSpeed: 2.5
+  m_JumpHeight: 1.6
+  m_Gravity: -25
+  m_LookSensitivity: 1.6
+  m_MaxLookAngle: 85
+  m_CrouchHeight: 1.2
+  m_CrouchCenterY: 0.6
+  m_ObstacleMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_HeadroomPadding: 0.02
+  m_LockCursorOnEnable: 1
 --- !u!143 &1041874732
 CharacterController:
   m_ObjectHideFlags: 0

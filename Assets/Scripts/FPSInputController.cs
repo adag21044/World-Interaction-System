@@ -4,169 +4,278 @@ using UnityEngine.InputSystem;
 [RequireComponent(typeof(CharacterController))]
 public class FPSInputController : MonoBehaviour, InputSystem_Actions.IPlayerActions
 {
+    #region Inspector
+
     [Header("References")]
-    [SerializeField] private Transform cameraRoot;
+    [Tooltip("Assign a pivot under the player (recommended). Fallback: Camera.main")]
+    [SerializeField] private Transform m_CameraRoot;
 
     [Header("Movement")]
-    [SerializeField] private float walkSpeed = 4.5f;
-    [SerializeField] private float sprintSpeed = 7.5f;
-    [SerializeField] private float crouchSpeed = 2.5f;
-    [SerializeField] private float jumpHeight = 1.6f;
-    [SerializeField] private float gravity = -25f;
+    [SerializeField] private float m_WalkSpeed = 4.5f;
+    [SerializeField] private float m_SprintSpeed = 7.5f;
+    [SerializeField] private float m_CrouchSpeed = 2.5f;
+    [SerializeField] private float m_JumpHeight = 1.6f;
+    [SerializeField] private float m_Gravity = -25f;
 
     [Header("Look")]
-    [SerializeField] private float lookSensitivity = 1.6f;
-    [SerializeField] private float maxLookAngle = 85f;
+    [SerializeField] private float m_LookSensitivity = 1.6f;
+    [SerializeField] private float m_MaxLookAngle = 85f;
 
     [Header("Crouch")]
-    [SerializeField] private float crouchHeight = 1.2f;
-    [SerializeField] private float crouchCenterY = 0.6f;
+    [SerializeField] private float m_CrouchHeight = 1.2f;
+    [SerializeField] private float m_CrouchCenterY = 0.6f;
 
-    private CharacterController controller;
-    private InputSystem_Actions actions;
+    [Header("Collision / Headroom Check")]
+    [Tooltip("Which layers should block standing up (Environment, Default, etc.)")]
+    [SerializeField] private LayerMask m_ObstacleMask = ~0;
 
-    private Vector2 moveInput;
-    private Vector2 lookInput;
-    private bool jumpPressed;
-    private bool sprintHeld;
-    private bool crouchHeld;
+    [Tooltip("Extra radius padding for capsule checks.")]
+    [SerializeField] private float m_HeadroomPadding = 0.02f;
 
-    private float verticalVelocity;
-    private float pitch;
-    private float originalHeight;
-    private Vector3 originalCenter;
+    [Header("Cursor")]
+    [SerializeField] private bool m_LockCursorOnEnable = true;
+
+    #endregion
+
+    #region Fields
+
+    private CharacterController m_Controller;
+    private InputSystem_Actions m_Actions;
+
+    private Vector2 m_MoveInput;
+    private Vector2 m_LookInput;
+
+    private bool m_JumpPressed;
+    private bool m_IsSprinting;
+    private bool m_IsCrouching;
+
+    private float m_VerticalVelocity;
+    private float m_Pitch;
+
+    private float m_OriginalHeight;
+    private Vector3 m_OriginalCenter;
+
+    private bool m_IsMouseLook;
+
+    private const float k_GroundedStickVelocity = -2f;
+
+    #endregion
+
+    #region Unity Methods
 
     private void Awake()
     {
-        controller = GetComponent<CharacterController>();
-        originalHeight = controller.height;
-        originalCenter = controller.center;
+        m_Controller = GetComponent<CharacterController>();
+        m_OriginalHeight = m_Controller.height;
+        m_OriginalCenter = m_Controller.center;
 
-        if (cameraRoot == null)
+        if (m_CameraRoot == null)
         {
             var cam = Camera.main;
             if (cam != null)
             {
-                cameraRoot = cam.transform;
+                m_CameraRoot = cam.transform;
+                Debug.LogWarning($"{nameof(FPSInputController)}: CameraRoot was not assigned. Falling back to Camera.main.", this);
+            }
+            else
+            {
+                Debug.LogError($"{nameof(FPSInputController)}: CameraRoot is missing and Camera.main not found. Look will be disabled.", this);
             }
         }
 
-        actions = new InputSystem_Actions();
-        actions.Player.AddCallbacks(this);
+        m_Actions = new InputSystem_Actions();
+        m_Actions.Player.AddCallbacks(this);
     }
 
     private void OnEnable()
     {
-        actions.Player.Enable();
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
+        if (m_Actions == null)
+        {
+            m_Actions = new InputSystem_Actions();
+            m_Actions.Player.AddCallbacks(this);
+        }
+
+        m_Actions.Player.Enable();
+
+        if (m_LockCursorOnEnable)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
     }
 
     private void OnDisable()
     {
-        actions.Player.Disable();
+        if (m_Actions != null)
+        {
+            m_Actions.Player.Disable();
+        }
+
+        if (m_LockCursorOnEnable)
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
     }
 
     private void OnDestroy()
     {
-        actions.Dispose();
+        if (m_Actions != null)
+        {
+            m_Actions.Player.RemoveCallbacks(this);
+            m_Actions.Dispose();
+        }
     }
 
     private void Update()
     {
         HandleLook();
-        HandleMovement();
         HandleCrouch();
+        HandleMovement();
     }
+
+    #endregion
+
+    #region Core Logic
 
     private void HandleLook()
     {
-        if (cameraRoot == null)
+        if (m_CameraRoot == null)
         {
             return;
         }
 
-        float mouseX = lookInput.x * lookSensitivity;
-        float mouseY = lookInput.y * lookSensitivity;
+        // Mouse is already "delta per frame". Gamepad stick usually needs deltaTime scaling.
+        float dtMultiplier = m_IsMouseLook ? 1f : Time.deltaTime;
 
-        pitch -= mouseY;
-        pitch = Mathf.Clamp(pitch, -maxLookAngle, maxLookAngle);
-        cameraRoot.localRotation = Quaternion.Euler(pitch, 0f, 0f);
+        float yawDelta = m_LookInput.x * m_LookSensitivity * dtMultiplier;
+        float pitchDelta = m_LookInput.y * m_LookSensitivity * dtMultiplier;
 
-        transform.Rotate(Vector3.up * mouseX);
+        m_Pitch -= pitchDelta;
+        m_Pitch = Mathf.Clamp(m_Pitch, -m_MaxLookAngle, m_MaxLookAngle);
+
+        m_CameraRoot.localRotation = Quaternion.Euler(m_Pitch, 0f, 0f);
+        transform.Rotate(Vector3.up * yawDelta);
     }
 
     private void HandleMovement()
     {
-        if (controller.isGrounded && verticalVelocity < 0f)
+        if (m_Controller.isGrounded && m_VerticalVelocity < 0f)
         {
-            verticalVelocity = -2f;
+            m_VerticalVelocity = k_GroundedStickVelocity;
         }
 
-        float speed = walkSpeed;
-        if (crouchHeld)
-        {
-            speed = crouchSpeed;
-        }
-        else if (sprintHeld)
-        {
-            speed = sprintSpeed;
-        }
+        float speed = GetCurrentSpeed();
 
-        Vector3 move = transform.right * moveInput.x + transform.forward * moveInput.y;
-        controller.Move(move * (speed * Time.deltaTime));
+        Vector3 planarMove = (transform.right * m_MoveInput.x + transform.forward * m_MoveInput.y) * speed;
 
-        if (jumpPressed && controller.isGrounded)
+        if (m_JumpPressed && m_Controller.isGrounded)
         {
-            verticalVelocity = Mathf.Sqrt(jumpHeight * -2f * gravity);
+            m_VerticalVelocity = Mathf.Sqrt(m_JumpHeight * -2f * m_Gravity);
         }
-        jumpPressed = false;
+        m_JumpPressed = false;
 
-        verticalVelocity += gravity * Time.deltaTime;
-        controller.Move(Vector3.up * (verticalVelocity * Time.deltaTime));
+        m_VerticalVelocity += m_Gravity * Time.deltaTime;
+
+        Vector3 velocity = planarMove + (Vector3.up * m_VerticalVelocity);
+        m_Controller.Move(velocity * Time.deltaTime);
     }
 
     private void HandleCrouch()
     {
-        if (crouchHeld)
+        if (m_IsCrouching)
         {
-            controller.height = Mathf.MoveTowards(controller.height, crouchHeight, Time.deltaTime * 8f);
-            var center = controller.center;
-            center.y = Mathf.MoveTowards(center.y, crouchCenterY, Time.deltaTime * 8f);
-            controller.center = center;
+            ApplyControllerDimensions(m_CrouchHeight, new Vector3(m_OriginalCenter.x, m_CrouchCenterY, m_OriginalCenter.z));
+            return;
         }
-        else
+
+        // Trying to stand up: only allow if there's enough headroom.
+        if (CanApplyControllerDimensions(m_OriginalHeight, m_OriginalCenter))
         {
-            controller.height = Mathf.MoveTowards(controller.height, originalHeight, Time.deltaTime * 8f);
-            var center = controller.center;
-            center.y = Mathf.MoveTowards(center.y, originalCenter.y, Time.deltaTime * 8f);
-            controller.center = center;
+            ApplyControllerDimensions(m_OriginalHeight, m_OriginalCenter);
         }
+        // else: stay crouched (keeps current height/center), no snapping into ceiling.
     }
+
+    private float GetCurrentSpeed()
+    {
+        if (m_IsCrouching)
+        {
+            return m_CrouchSpeed;
+        }
+
+        if (m_IsSprinting)
+        {
+            return m_SprintSpeed;
+        }
+
+        return m_WalkSpeed;
+    }
+
+    private void ApplyControllerDimensions(float targetHeight, Vector3 targetCenter)
+    {
+        m_Controller.height = Mathf.MoveTowards(m_Controller.height, targetHeight, Time.deltaTime * 8f);
+
+        Vector3 center = m_Controller.center;
+        center.y = Mathf.MoveTowards(center.y, targetCenter.y, Time.deltaTime * 8f);
+        center.x = targetCenter.x;
+        center.z = targetCenter.z;
+
+        m_Controller.center = center;
+    }
+
+    private bool CanApplyControllerDimensions(float desiredHeight, Vector3 desiredCenter)
+    {
+        // Build a capsule representing the controller at the *desired* state.
+        // CharacterController capsule axis is along local Y.
+        float radius = Mathf.Max(0.01f, m_Controller.radius - m_HeadroomPadding);
+
+        Vector3 worldCenter = transform.TransformPoint(desiredCenter);
+
+        float halfHeight = desiredHeight * 0.5f;
+        float capsuleHalf = Mathf.Max(radius, halfHeight);
+
+        Vector3 bottom = worldCenter + Vector3.down * (capsuleHalf - radius);
+        Vector3 top = worldCenter + Vector3.up * (capsuleHalf - radius);
+
+        // Ignore triggers; we only care about solid obstacles for headroom.
+        bool blocked = Physics.CheckCapsule(
+            bottom,
+            top,
+            radius,
+            m_ObstacleMask,
+            QueryTriggerInteraction.Ignore);
+
+        return !blocked;
+    }
+
+    #endregion
+
+    #region Input Callbacks
 
     public void OnMove(InputAction.CallbackContext context)
     {
-        moveInput = context.ReadValue<Vector2>();
+        m_MoveInput = context.ReadValue<Vector2>();
     }
 
     public void OnLook(InputAction.CallbackContext context)
     {
-        lookInput = context.ReadValue<Vector2>();
+        m_LookInput = context.ReadValue<Vector2>();
+
+        // Best-effort detection for scaling.
+        var device = context.control?.device;
+        m_IsMouseLook = device is Mouse;
     }
-
-    public void OnAttack(InputAction.CallbackContext context) { }
-
-    public void OnInteract(InputAction.CallbackContext context) { }
 
     public void OnCrouch(InputAction.CallbackContext context)
     {
         if (context.performed)
         {
-            crouchHeld = true;
+            m_IsCrouching = true;
         }
         else if (context.canceled)
         {
-            crouchHeld = false;
+            m_IsCrouching = false;
         }
     }
 
@@ -174,23 +283,27 @@ public class FPSInputController : MonoBehaviour, InputSystem_Actions.IPlayerActi
     {
         if (context.performed)
         {
-            jumpPressed = true;
+            m_JumpPressed = true;
         }
     }
-
-    public void OnPrevious(InputAction.CallbackContext context) { }
-
-    public void OnNext(InputAction.CallbackContext context) { }
 
     public void OnSprint(InputAction.CallbackContext context)
     {
         if (context.performed)
         {
-            sprintHeld = true;
+            m_IsSprinting = true;
         }
         else if (context.canceled)
         {
-            sprintHeld = false;
+            m_IsSprinting = false;
         }
     }
+
+    // Not used in this case (kept to satisfy the generated interface).
+    public void OnAttack(InputAction.CallbackContext context) { }
+    public void OnInteract(InputAction.CallbackContext context) { }
+    public void OnPrevious(InputAction.CallbackContext context) { }
+    public void OnNext(InputAction.CallbackContext context) { }
+
+    #endregion
 }

@@ -8,7 +8,6 @@ namespace WorldInteractionSystem.Runtime.Core
     public abstract class HoldInteractableBase : InteractableBase, IHoldInteractable
     {
         #region Fields
-
         private const float k_MinHoldDuration = 0.1f;
 
         [Header("Hold")]

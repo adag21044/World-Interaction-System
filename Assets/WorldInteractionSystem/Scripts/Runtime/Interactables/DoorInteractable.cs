@@ -15,6 +15,8 @@ namespace WorldInteractionSystem.Runtime.Interactables
         private const float k_DefaultOpenAngle = 90f;
         private const float k_DefaultOpenSpeed = 4f;
         private const string k_KeyRequiredText = "Key required";
+        private const string k_OpenText = "Open";
+        private const string k_CloseText = "Close";
 
         [Header("Door")]
         [SerializeField] private Transform m_Pivot;
@@ -33,9 +35,6 @@ namespace WorldInteractionSystem.Runtime.Interactables
 
         #region Properties
 
-        /// <summary>
-        /// Door interaction type.
-        /// </summary>
         public override InteractionType InteractionType => InteractionType.Toggle;
 
         #endregion
@@ -63,47 +62,14 @@ namespace WorldInteractionSystem.Runtime.Interactables
 
         #region Methods
 
-        /// <summary>
-        /// Sets the locked state of the door.
-        /// </summary>
-        /// <param name="isLocked">Target lock state.</param>
         public void SetLocked(bool isLocked)
         {
             m_IsLocked = isLocked;
         }
 
-        /// <summary>
-        /// Sets the door open state.
-        /// </summary>
-        /// <param name="isOpen">Target open state.</param>
-        public void SetOpen(bool isOpen)
-        {
-            if (m_IsLocked && isOpen)
-            {
-                Debug.LogWarning($"{nameof(DoorInteractable)}: Cannot open while locked.", this);
-                return;
-            }
-
-            SetIsOn(isOpen, BuildEventContext());
-        }
-
-        /// <summary>
-        /// Forces the door open/close state, bypassing locks.
-        /// </summary>
-        /// <param name="isOpen">Target open state.</param>
-        public void SetOpenForced(bool isOpen)
-        {
-            if (m_IsLocked && isOpen)
-            {
-                m_IsLocked = false;
-            }
-
-            SetIsOn(isOpen, BuildEventContext());
-        }
-
         protected override string GetInteractionVerb(InteractorContext context)
         {
-            return IsOn ? "Close" : "Open";
+            return IsOn ? k_CloseText : k_OpenText;
         }
 
         protected override bool CanInteractInternal(InteractorContext context, out string reason)
@@ -139,35 +105,15 @@ namespace WorldInteractionSystem.Runtime.Interactables
                 return false;
             }
 
+            // Key varsa: unlock
+            m_IsLocked = false;
             reason = string.Empty;
             return true;
         }
 
         protected override void OnToggled(InteractorContext context, bool isOn)
         {
-            if (m_IsLocked)
-            {
-                if (context.Inventory == null || m_RequiredKey == null)
-                {
-                    Debug.LogWarning($"{nameof(DoorInteractable)}: Toggle called while locked.", this);
-                    return;
-                }
-
-                if (!context.Inventory.ContainsKey(m_RequiredKey))
-                {
-                    Debug.LogWarning($"{nameof(DoorInteractable)}: Missing required key.", this);
-                    return;
-                }
-
-                m_IsLocked = false;
-            }
-
             RotateDoor(isOn);
-        }
-
-        private InteractorContext BuildEventContext()
-        {
-            return new InteractorContext(gameObject, transform, null);
         }
 
         private void RotateDoor(bool open)

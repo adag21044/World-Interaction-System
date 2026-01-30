@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.Controls;
 using WorldInteractionSystem.Runtime.Core;
 using WorldInteractionSystem.Runtime.UI;
 
@@ -25,12 +26,18 @@ namespace WorldInteractionSystem.Runtime.Player
         [SerializeField] private string m_DefaultInteractDisplay = "E";
         [SerializeField] private string m_PressPromptFormat = "Press {0} to {1}";
         [SerializeField] private string m_HoldPromptFormat = "Hold {0} to {1}";
+        [SerializeField] private bool m_UseCustomInteractKey;
+        [SerializeField] private Key m_CustomInteractKey = Key.E;
 
         [Header("Debug")]
         [SerializeField] private bool m_EnableDebugLogs;
 
         private InputSystem_Actions m_FallbackActions;
         private InputAction m_ResolvedInteractAction;
+        private InputAction m_CustomInteractAction;
+        private InputAction m_BoundInteractAction;
+        private Key m_LastCustomInteractKey = Key.None;
+        private bool m_LastUseCustomInteractKey;
         private string m_InteractDisplayString;
 
         private IInteractable m_CurrentInteractable;
@@ -77,30 +84,21 @@ namespace WorldInteractionSystem.Runtime.Player
 
         private void OnEnable()
         {
-            ResolveInteractAction();
-
-            if (m_ResolvedInteractAction != null)
-            {
-                m_ResolvedInteractAction.started += OnInteractStarted;
-                m_ResolvedInteractAction.performed += OnInteractPerformed;
-                m_ResolvedInteractAction.canceled += OnInteractCanceled;
-                m_ResolvedInteractAction.Enable();
-            }
+            BindInteractAction();
         }
 
         private void OnDisable()
         {
-            if (m_ResolvedInteractAction != null)
-            {
-                m_ResolvedInteractAction.started -= OnInteractStarted;
-                m_ResolvedInteractAction.performed -= OnInteractPerformed;
-                m_ResolvedInteractAction.canceled -= OnInteractCanceled;
-                m_ResolvedInteractAction.Disable();
-            }
+            UnbindInteractAction();
         }
 
         private void Update()
         {
+            if (HasInputSettingsChanged())
+            {
+                BindInteractAction();
+            }
+
             UpdateTarget();
             UpdateHold();
         }
@@ -112,6 +110,13 @@ namespace WorldInteractionSystem.Runtime.Player
                 m_FallbackActions.Dispose();
                 m_FallbackActions = null;
             }
+
+            if (m_CustomInteractAction != null)
+            {
+                m_CustomInteractAction.Disable();
+                m_CustomInteractAction.Dispose();
+                m_CustomInteractAction = null;
+            }
         }
 
         #endregion
@@ -120,6 +125,23 @@ namespace WorldInteractionSystem.Runtime.Player
 
         private void ResolveInteractAction()
         {
+            if (m_UseCustomInteractKey)
+            {
+                if (m_CustomInteractKey == Key.None)
+                {
+                    Debug.LogWarning(
+                        $"{nameof(PlayerInteractor)}: Custom interact key is None. Falling back to default action.",
+                        this);
+                }
+                else
+                {
+                    EnsureCustomInteractAction();
+                    m_ResolvedInteractAction = m_CustomInteractAction;
+                    m_InteractDisplayString = GetInteractDisplayString();
+                    return;
+                }
+            }
+
             if (m_InteractAction != null && m_InteractAction.action != null)
             {
                 m_ResolvedInteractAction = m_InteractAction.action;
@@ -146,6 +168,86 @@ namespace WorldInteractionSystem.Runtime.Player
 
             string display = m_ResolvedInteractAction.GetBindingDisplayString();
             return string.IsNullOrWhiteSpace(display) ? m_DefaultInteractDisplay : display;
+        }
+
+        private void BindInteractAction()
+        {
+            UnbindInteractAction();
+
+            ResolveInteractAction();
+            if (m_ResolvedInteractAction == null)
+            {
+                Debug.LogError($"{nameof(PlayerInteractor)}: Interact action is missing.", this);
+                return;
+            }
+
+            m_BoundInteractAction = m_ResolvedInteractAction;
+            m_BoundInteractAction.started += OnInteractStarted;
+            m_BoundInteractAction.performed += OnInteractPerformed;
+            m_BoundInteractAction.canceled += OnInteractCanceled;
+            m_BoundInteractAction.Enable();
+
+            m_LastUseCustomInteractKey = m_UseCustomInteractKey;
+        }
+
+        private void UnbindInteractAction()
+        {
+            if (m_BoundInteractAction == null)
+            {
+                return;
+            }
+
+            m_BoundInteractAction.started -= OnInteractStarted;
+            m_BoundInteractAction.performed -= OnInteractPerformed;
+            m_BoundInteractAction.canceled -= OnInteractCanceled;
+            m_BoundInteractAction.Disable();
+            m_BoundInteractAction = null;
+        }
+
+        private bool HasInputSettingsChanged()
+        {
+            if (m_UseCustomInteractKey != m_LastUseCustomInteractKey)
+            {
+                return true;
+            }
+
+            if (m_UseCustomInteractKey && m_CustomInteractKey != m_LastCustomInteractKey)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private void EnsureCustomInteractAction()
+        {
+            if (m_CustomInteractAction != null && m_LastCustomInteractKey == m_CustomInteractKey)
+            {
+                return;
+            }
+
+            if (m_CustomInteractAction != null)
+            {
+                m_CustomInteractAction.Dispose();
+            }
+
+            string bindingPath = GetCustomKeyBindingPath();
+            m_CustomInteractAction = new InputAction("InteractCustom", InputActionType.Button, bindingPath);
+            m_LastCustomInteractKey = m_CustomInteractKey;
+        }
+
+        private string GetCustomKeyBindingPath()
+        {
+            if (Keyboard.current != null)
+            {
+                KeyControl keyControl = Keyboard.current[m_CustomInteractKey];
+                if (keyControl != null)
+                {
+                    return keyControl.path;
+                }
+            }
+
+            return $"<Keyboard>/{m_CustomInteractKey.ToString().ToLowerInvariant()}";
         }
 
         private void UpdateTarget()

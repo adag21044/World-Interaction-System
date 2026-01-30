@@ -100,6 +100,7 @@ namespace WorldInteractionSystem.Runtime.Player
             }
 
             UpdateTarget();
+            TryStartHoldFromInput();
             UpdateHold();
         }
 
@@ -349,7 +350,7 @@ namespace WorldInteractionSystem.Runtime.Player
                 return;
             }
 
-            if (m_ResolvedInteractAction == null || !m_ResolvedInteractAction.IsPressed())
+            if (m_BoundInteractAction == null || !m_BoundInteractAction.IsPressed())
             {
                 CancelHold();
                 return;
@@ -373,6 +374,44 @@ namespace WorldInteractionSystem.Runtime.Player
             {
                 CompleteHold();
             }
+        }
+
+        private void TryStartHoldFromInput()
+        {
+            if (m_IsHolding || m_IsOutOfRange)
+            {
+                return;
+            }
+
+            if (!(m_CurrentInteractable is IHoldInteractable holdInteractable))
+            {
+                return;
+            }
+
+            if (m_BoundInteractAction == null || !m_BoundInteractAction.enabled)
+            {
+                return;
+            }
+
+            bool pressedThisFrame = m_BoundInteractAction.WasPressedThisFrame();
+            bool isPressed = m_BoundInteractAction.IsPressed();
+
+            if (!pressedThisFrame && !isPressed)
+            {
+                return;
+            }
+
+            if (!m_CurrentInteractable.CanInteract(BuildContext(), out string reason))
+            {
+                if (m_EnableDebugLogs)
+                {
+                    Debug.Log($"{nameof(PlayerInteractor)}: Hold blocked. {reason}", this);
+                }
+
+                return;
+            }
+
+            StartHold(holdInteractable);
         }
 
         private void StartHold(IHoldInteractable holdInteractable)

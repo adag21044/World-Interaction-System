@@ -12,6 +12,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2243d68b73919b64e887bd2b6adce3db, type: 3}
   m_Name: SO_Item_Gem
   m_EditorClassIdentifier: Assembly-CSharp::WorldInteractionSystem.Runtime.Items.ItemDefinition
-  m_ItemId: item_id
-  m_DisplayName: Item
+  m_ItemId: item_gem
+  m_DisplayName: Gem
   m_Description: 

@@ -3,6 +3,7 @@ using System.Text;
 using TMPro;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.Controls;
 using WorldInteractionSystem.Runtime.Items;
 using PlayerInventory = WorldInteractionSystem.Runtime.Player.Inventory;
 
@@ -21,6 +22,7 @@ namespace WorldInteractionSystem.Runtime.Inventory
         [SerializeField] private GameObject m_OutputRoot;
 
         [Header("Input")]
+        [SerializeField] private InputActionReference m_ToggleAction;
         [SerializeField] private Key m_ToggleKey = Key.Tab;
 
         [Header("Display")]
@@ -33,6 +35,9 @@ namespace WorldInteractionSystem.Runtime.Inventory
 
         private bool m_IsVisible;
         private bool m_HasLoggedMissingRefs;
+        private InputAction m_CustomToggleAction;
+        private InputAction m_BoundToggleAction;
+        private Key m_LastToggleKey = Key.None;
 
         #endregion
 
@@ -70,6 +75,7 @@ namespace WorldInteractionSystem.Runtime.Inventory
                 return;
             }
 
+            BindToggleAction();
             m_Inventory.InventoryChanged += OnInventoryChanged;
             Refresh(m_Inventory.Items);
         }
@@ -80,10 +86,27 @@ namespace WorldInteractionSystem.Runtime.Inventory
             {
                 m_Inventory.InventoryChanged -= OnInventoryChanged;
             }
+
+            UnbindToggleAction();
+        }
+
+        private void OnDestroy()
+        {
+            if (m_CustomToggleAction != null)
+            {
+                m_CustomToggleAction.Disable();
+                m_CustomToggleAction.Dispose();
+                m_CustomToggleAction = null;
+            }
         }
 
         private void Update()
         {
+            if (m_BoundToggleAction == null || m_LastToggleKey != m_ToggleKey)
+            {
+                BindToggleAction();
+            }
+
             if (WasTogglePressed())
             {
                 SetVisible(!m_IsVisible);
@@ -186,15 +209,76 @@ namespace WorldInteractionSystem.Runtime.Inventory
             }
         }
 
-        private bool WasTogglePressed()
+        private void BindToggleAction()
+        {
+            UnbindToggleAction();
+
+            if (m_ToggleAction != null && m_ToggleAction.action != null)
+            {
+                m_BoundToggleAction = m_ToggleAction.action;
+            }
+            else
+            {
+                EnsureCustomToggleAction();
+                m_BoundToggleAction = m_CustomToggleAction;
+            }
+
+            if (m_BoundToggleAction == null)
+            {
+                Debug.LogError($"{nameof(InventoryManager)}: Toggle action is missing.", this);
+                return;
+            }
+
+            m_BoundToggleAction.Enable();
+        }
+
+        private void UnbindToggleAction()
+        {
+            if (m_BoundToggleAction == null)
+            {
+                return;
+            }
+
+            m_BoundToggleAction.Disable();
+            m_BoundToggleAction = null;
+        }
+
+        private void EnsureCustomToggleAction()
+        {
+            if (m_CustomToggleAction != null && m_LastToggleKey == m_ToggleKey)
+            {
+                return;
+            }
+
+            if (m_CustomToggleAction != null)
+            {
+                m_CustomToggleAction.Dispose();
+            }
+
+            string bindingPath = GetToggleBindingPath();
+            m_CustomToggleAction = new InputAction("ToggleInventory", InputActionType.Button, bindingPath);
+            m_LastToggleKey = m_ToggleKey;
+        }
+
+        private string GetToggleBindingPath()
         {
             if (Keyboard.current != null)
             {
-                var keyControl = Keyboard.current[m_ToggleKey];
-                return keyControl != null && keyControl.wasPressedThisFrame;
+                KeyControl keyControl = Keyboard.current[m_ToggleKey];
+                if (keyControl != null)
+                {
+                    return keyControl.path;
+                }
             }
 
-            return Input.GetKeyDown(KeyCode.Tab);
+            return $"<Keyboard>/{m_ToggleKey.ToString().ToLowerInvariant()}";
+        }
+
+        private bool WasTogglePressed()
+        {
+            return m_BoundToggleAction != null
+                && m_BoundToggleAction.enabled
+                && m_BoundToggleAction.WasPressedThisFrame();
         }
 
         private void LogMissingRefs()

@@ -2,6 +2,98 @@
 
 ## World Interaction System
 
+## Interaction System - Ahmet Emir Dağ
+
+### Proje Bilgileri
+| Alan | Deger |
+|------|-------|
+| Unity Version | 6000.3.5f1 |
+| Render Pipeline | URP |
+| Case Suresi | 12 Saat |
+| Tamamlanma | %90 |
+
+### Kurulum
+1) `git clone https://github.com/adag21044/World-Interaction-System`
+2) Unity Hub > Add > `C:/World Interaction System`
+3) TestScene: `Assets/Scenes/TestScene.unity`
+
+### Nasil Test Edilir
+**Kontroller**
+| Aksiyon | Tus |
+|--------|-----|
+| Hareket | WASD |
+| Bakis | Mouse |
+| Etkilesim | E |
+| Ziplama | Space |
+| Kosma | Left Shift |
+
+**Test Senaryolari (4 adet)**
+1) Door: Kilitli kapida anahtar yokken "Key required" gorunur, anahtar alininca acilir.
+2) Key Pickup: Anahtar alindiginda envantere eklenir ve tekrar alinmaz.
+3) Switch/Lever: Toggle ile bagli nesne tetiklenir (orn: light aktif + obje donusu).
+4) Chest: Hold ile acilir, bir kere acilir, ic item aktif olur.
+
+### Mimari Kararlar
+- Interaction system yapisi: `IInteractable` + base classlar (Instant/Hold/Toggle) + `InteractionDetector` + `PlayerInteractor`.
+- Neden bu yapi: Genisletilebilirlik ve tek noktadan kontrol (UI + input).
+- Alternatifler: ScriptableObject tabanli etkilesim tanimlari, event bus tabanli mimari.
+- Trade-offs: Base class kullanimi esneklik verir fakat hiyerarsi bagimliligi artirir.
+
+### Kullanilan Design Patterns
+| Pattern | Kullanim |
+|---------|----------|
+| Template Method | Interactable base classlarda ortak akis |
+| Observer | Inventory degisimi ve UnityEvent baglantilari |
+| Strategy (kismen) | Farkli interaction type davranislari |
+
+### Standartlara Uyum Checklist
+- [x] C# coding conventions (m_/s_/k_, region sirasi)
+- [x] Naming convention (Assets/WorldInteractionSystem icin)
+- [x] Prefab kurallari (projede uygulandi)
+
+### Zorlandigin Noktalar
+- [ ] Input System binding ve UI prompt senkronizasyonu
+
+### Tamamlanan Ozellikler
+**Must Have**
+- [x] Core interaction system
+- [x] 3 interaction type (Instant/Hold/Toggle)
+- [x] 4 interactable (Door/Key/Switch/Chest)
+- [x] UI feedback (prompt + hold progress)
+- [x] Simple inventory
+
+### Bilinen Limitasyonlar
+- Tamamlanamayanlar: Yok
+- Bilinen buglar + reproduce: Yok
+- Iyilestirme onerileri: Interactable highlight ve animasyon polish
+
+### Ekstra Ozellikler
+- Yok
+
+### Dosya Yapisi
+```
+InteractionSystem/
+├── Assets/
+│   ├── WorldInteractionSystem/
+│   │   ├── Scripts/Runtime/
+│   │   │   ├── Core/
+│   │   │   ├── Interactables/
+│   │   │   ├── Player/
+│   │   │   └── UI/
+│   │   ├── ScriptableObjects/Items/
+│   │   ├── Prefabs/
+│   │   └── Scenes/
+│   └── Scenes/TestScene.unity
+├── Docs/
+├── Prompts.md
+└── README.md
+```
+
+### Iletisim
+- Ad Soyad: Ahmet Emir Dağ
+- E-posta: ahmetedag9@gmail.com
+- LinkedIn: https://www.linkedin.com/in/adag21044/
+
 **Pozisyon:** Unity Developer Intern
 **Süre:** 12 Saat
 **Zorluk:** Orta
